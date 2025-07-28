@@ -1,169 +1,159 @@
-# ホイール-地面間拘束を考慮した拘束付き運動方程式の定式化手順
+# 2次元倒立振子のラグランジュ未定乗数法を使わない地面拘束システム
 
-## 本ドキュメントでは、脚車輪型ロボットにおけるホイール-地面間の接触拘束（非滑り・接地）を考慮した、拘束付き運動方程式を構築する一連の流れを整理する。
+## プロジェクト概要
 
-## 1. 拘束方針
+本プロジェクトでは、2次元倒立振子（ボディ・ホイール系）において、ラグランジュ未定乗数法を使用せずに地面との拘束を実現するシステムを開発しました。
 
-各ホイールは常に地面に接地している（接触点位置の拘束）
+## システム構成
 
-各ホイールは地面と滑らずに転がる（接触点位置のx,y方向も拘束）
+### 例として使用した物理モデル
+- **ベースボディ**: 質量1kg、長さL=0.2m
+- **ホイール**: 質量0.5kg、半径r=0.04m
+- **4自由度**: `[x_base, z_base, φ_base, θ_wheel]`
+- **拘束後**: 実質2自由度 `[x_base, φ_base]`
 
-ホイールは回転することにより前進する（転がり運動は許容）
-
-これらの条件により、1ホイールあたり3本、左右2輪で計6本の拘束式が必要となる。
-
-## 2. 接触点位置拘束の定義
-
-### 2.1 接触点の定義
-
-ホイール中心位置（ワールド座標）を p_w(q)、ホイールのローカルz軸方向ベクトルをワールド座標に変換したものを ê_z(q)、ホイール半径を r とすると、接触点位置は次のように定義される：
-
+### 座標系定義
 ```
-p_contact(q) = p_w(q) - r * ê_z(q)
-```
+z ^
+  |
+  +----> x
 
-※ 以前は ê_z(q) = [0, 0, 1] と仮定していたが、ホイールがリンクに接続されて姿勢変化を持つ場合、これは不適切。ローカルz軸のワールド変換ベクトルとして、状態変数qに依存する ê_z(q) を明示的に使う必要がある。
-
-### 2.2 接触点の拘束式（位置レベル）
-
-接触点が地面に接しているという拘束は、z方向の高さに関しては位置レベルで成立するが、x, y方向については非滑り拘束（速度レベル）として扱う必要がある。
-
-したがって、接触点の位置 p_contact(q) と地面点 p_ground の一致を拘束式にするのは z方向のみに適用し、x, y方向については後述の速度レベルの非滑り拘束で定義するのが正しい。
-
-```
-Φ_z(q) = [p_contact(q)]_z - [p_ground]_z = 0
+ベース座標: (x_base, z_base)
+ベース角度: φ_base (y軸周り回転)
+ホイール角度: θ_wheel (y軸周り回転)
 ```
 
-左右輪に対して適用することで、z方向の位置拘束として2本の式が得られる。
+## 実装した拘束条件
 
-この z 方向の位置拘束は時間微分により接触点の鉛直速度拘束に変換できる：
-
-```
-Φ̇_z(q, dq) = d/dt ([p_contact(q)]_z) = 0
-```
-
-また、x, y 方向についてはホイール回転による接触点の相対速度を考慮した非滑り拘束が次のように記述される：
-
-```
-Φ̇_xy(q, dq) = [v_contact(q, dq)]_{x,y} = 0
+### 1. ホイール中心高さ拘束
+```python
+# ホイール中心z座標 = r (地面からホイール半径の高さ)
+wheel_center_z = z_base - L*cos(φ) = r
+∴ z_base = r + L*cos(φ)
 ```
 
-ここで v_contact(q, dq) はホイール中心速度と角速度から定義される接触点速度であり、これら x, y, z 各方向の速度拘束をまとめて次のように書ける：
-
-```
-Φ̇_contact(q, dq) = v_contact(q, dq) = 0
-```
-
-この統一ベクトル形式により、拘束ヤコビアンや加速度拘束式との接続が明確になる。
-
-
-
-### 2.3 2次元簡易モデルによる例
-
-ボディ角度：θ
-
-ホイール回転角：ϕ
-
-ボディの原点位置：p_b = [x; y]
-
-ホイール接続位置：ボディから長さL分下（ボディ座標系の -Y方向）
-
-```
-ホイール接触点：p_contact = p_b + R(θ) * [-L; -r]
+### 2. ホイール中心垂直速度拘束
+```python
+# d(wheel_center_z)/dt = 0 (ホイール中心は常に高さr)
+d(wheel_center_z)/dt = dz_base + L*sin(φ)*dφ = 0
+∴ dz_base = -L*sin(φ)*dφ
 ```
 
-ここで、R(θ) はボディの回転行列。
-
-接触点の位置拘束（地面に接触）：
-
-```
-Φ_y(q) = y - L*cos(θ) - r = 0
-```
-
-加えて、非滑り拘束（接触点の水平方向速度がゼロ）を考慮すると：
-
-接触点の速度：
-
-```
-v_contact = [dx/dt - L*sin(θ)*θ̇;
-             dy/dt + L*cos(θ)*θ̇] + r*[sin(θ); -cos(θ)]*ϕ̇
+### 3. No-slip拘束（滑り無し条件）
+```python
+# ホイール中心の水平速度 = r × ホイール角速度
+d(wheel_center_x)/dt = d(x_base + L*sin(φ))/dt = dx_base + L*cos(φ)*dφ = r*dθ
+∴ dθ = (dx_base + L*cos(φ)*dφ) / r
 ```
 
-ここで、```r*[sin(θ); -cos(θ)]*ϕ̇ ```はホイール回転による接触点速度。
-
-この接触点速度ベクトルの x成分をゼロにする拘束式：
+## ファイル構成
 
 ```
-Φ̇_x(q, dq) = dx/dt - L*sin(θ)*θ̇ + r*sin(θ)*ϕ̇ = 0
+src/test/simple_test/
+├── simple_ip_fixed.py          # メインシミュレーション（最終完成版）
+├── verify_noslip.py           # Rolling constraint検証
+├── verify_true_noslip.py      # 真のno-slip拘束検証
+├── debug_constraint.py        # 拘束計算デバッグ
+└── simple_test.md            # 本説明文書
 ```
 
-これにより、接地（y方向）と非滑り（x方向）の拘束がともに表現される。
+## 実行方法
 
-加速度レベルでは：
-
-```
-d²Φ_y/dt² = ddy/dt² + L*cos(θ)*θ̇² + L*sin(θ)*θ̈ = 0
-
-d²Φ_x/dt² = ddx/dt² - L*cos(θ)*θ̇² - L*sin(θ)*θ̈ + r*cos(θ)*θ̇*ϕ̇ + r*sin(θ)*ϕ̈ = 0
+### 基本シミュレーション
+```bash
+. bin/activate
+python src/test/simple_test/simple_ip_fixed.py
 ```
 
-これらの導出によって、非線形拘束下の運動方程式へ接続できる。
-
-
-## 3. 拘束ヤコビアンと加速度拘束式の導出
-
-位置拘束 Φ(q) の1階・2階微分により、速度・加速度レベルの拘束式を得る：
-
-速度拘束：
-
-```
-Φ̇(q, dq) = J(q) * dq = 0
+### No-slip拘束検証
+```bash
+python src/test/simple_test/verify_true_noslip.py
 ```
 
-加速度拘束：
+## アニメーション表示内容
 
-```
-Φ̈(q, dq, ddq) = J(q) * ddq + dJ/dt * dq = 0
-```
+- **青線**: ベースボディ（長さL）
+- **赤円**: ホイール（半径r）
+- **赤点**: 接触点（常に地面上）
+- **黒線**: 地面
+- **リアルタイム情報**: 時間、座標、ホイール中心高さ、接触点高さ
 
-ここで J(q) は p_contact(q) に対するヤコビアンであり、各ホイールごとに3×n行列。
-全体では J(q) ∈ ℝ⁶ˣⁿ（n: 全自由度）
+## 理論的背景
 
-## 4. 拘束付き運動方程式の構築
+### 2Dの運動方程式導出の具体的流れ
 
-ロボットの運動方程式と拘束条件を連立する：
-
-```
-M(q) * ddq + h(q, dq) = τ + Jᵗ(q) * λ
-J(q) * ddq + dJ/dt * dq = 0
-```
-
-M(q)：質量行列
-
-h(q, dq)：コリオリ・重力項
-
-τ：入力トルク
-
-J(q)：拘束ヤコビアン
-
-λ：ラグランジュ乗数（拘束力）
-
-この連立方程式を用いて ddq と λ を同時に求解する。
-
-## 5. 拘束力を含まない状態方程式への変換（制御設計向け）
-
-上記の連立方程式：
-
-```
-[ M   -Jᵗ ] [ddq] = [τ - h  ]
-[ J     0 ] [ λ ] = [-dJ/dt * dq]
+#### Step 0: 拘束条件の適用
+```python
+def solve_constraint_for_2dof_proper(q2, dq2, L, r, theta_prev=0.0, dt=0.01):
+    x_base, phi_base = q2  # 独立変数（入力）
+    dx_base, dphi_base = dq2
+    
+    # 従属変数を拘束条件から計算
+    z_base = r + L * np.cos(phi_base)           # 位置拘束
+    dz_base = -L * np.sin(phi_base) * dphi_base # 速度拘束
+    dtheta_wheel = (dx_base + L * np.cos(phi_base) * dphi_base) / r  # no-slip拘束
+    theta_wheel = theta_prev + dtheta_wheel * dt
+    
+    # 拘束を満たした完全な4自由度状態を構築
+    q_full = np.array([x_base, z_base, phi_base, theta_wheel])
+    dq_full = np.array([dx_base, dz_base, dphi_base, dtheta_wheel])
+    
+    return q_full, dq_full, theta_wheel
 ```
 
-この方程式を解くことで、拘束条件を満たす ```ddq = f(q, dq, τ)``` が得られ、以下のような状態方程式を得る：
+#### Step 1: Pinocchioで4自由度系の動力学項計算
+```python
+# Step0で拘束を満たした状態でPinocchio計算
+q_full, dq_full = solve_constraint_for_2dof_proper(q2, dq2, L, r)
 
-```
-d/dt [q]   = dq
-     [dq] = ddq(q, dq, τ)
+# Pinocchioで動力学項を一括計算（この時点でz_baseは既に決定済み）
+pin.computeAllTerms(model, data, q_full, dq_full)
+M_full = data.M        # 質量行列 (4×4)
+C_full = data.C.dot(dq_full)  # コリオリ項 (4×1)
+g_full = data.g        # 重力項 (4×1)
 ```
 
-これにより、拘束を満たす状態方程式が閉じ、LQR や MPC に適用可能な ODE 形式のモデルが得られる。
+#### Step 2: 変換行列T構築（ヤコビアン行列）
+```python
+# T は ∂q_full/∂q2 のヤコビアン行列
+T = np.zeros((4, 2))
+T[0, 0] = 1.0                           # ∂x_base/∂x_base = 1
+T[1, 1] = -L * np.sin(phi_base)         # ∂z_base/∂φ_base
+T[2, 1] = 1.0                           # ∂φ_base/∂φ_base = 1  
+T[3, 0] = 1.0/r                         # ∂θ_wheel/∂x_base
+T[3, 1] = L * np.cos(phi_base) / r      # ∂θ_wheel/∂φ_base
+```
+
+#### Step 3: 2自由度系への縮約
+```python
+# 縮約された動力学項の計算
+M_reduced = T.T @ M_full @ T    # 2×2質量行列
+C_reduced = T.T @ C_full        # 2×1コリオリ項
+g_reduced = T.T @ g_full        # 2×1重力項
+
+# 2自由度での運動方程式
+# M_reduced * ddq2 = tau2 - C_reduced - g_reduced
+ddq2 = np.linalg.solve(M_reduced, tau2 - C_reduced - g_reduced)
+```
+
+### 使用するPinocchio関数
+- `pin.computeAllTerms(model, data, q, dq)`: 質量行列、コリオリ、重力を一括計算
+- `data.M`, `data.C`, `data.g`: 動力学項にアクセス
+- `pin.forwardKinematics()`, `pin.updateFramePlacements()`: 運動学計算
+
+### 物理的妥当性
+本システムは以下の物理法則を満たします：
+1. **ニュートンの運動法則**: 質量×加速度 = 力
+2. **オイラーの回転方程式**: 慣性×角加速度 = トルク  
+3. **拘束力の仮想仕事原理**: 拘束方向の仮想変位に対する仕事 = 0
+4. **No-slip条件**: 接触点でのスリップ速度 = 0
+
+## 参考文献・技術仕様
+
+- **Pinocchio**: 剛体動力学ライブラリ
+- **座標系**: 右手系（x右、z上）
+- **角度**: ラジアン表記
+- **数値積分**: オイラー法（dt=0.001～0.01）
+- **描画**: matplotlib + animation
+
+--
