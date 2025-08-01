@@ -1,6 +1,7 @@
 """
 真のPinocchio順運動学を使った完全統合アニメーション
 z_base導出にPinocchioを真に活用したシステム
+注: システムは3自由度（位置拘束1つのみ）
 """
 
 import pinocchio as pin

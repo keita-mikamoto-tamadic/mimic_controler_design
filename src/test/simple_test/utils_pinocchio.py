@@ -1,6 +1,7 @@
 """
 Pinocchio統合システム用共通ユーティリティ関数
 中間開発ファイルから抽出した再利用可能な関数群
+注: システムは3自由度（位置拘束1つのみ）
 """
 
 import pinocchio as pin
@@ -93,10 +94,10 @@ def compute_z_base_velocity(q2, dq2, L):
 
 def solve_constraint_for_2dof_pinocchio(q2, dq2, model, data, L, r, theta_prev=0.0, dt=0.01):
     """
-    Pinocchio順運動学を使った2自由度拘束解法
+    Pinocchio順運動学を使った拘束解法（2自由度入力）
     
     Args:
-        q2: [x_base, phi_base] - 2自由度設定
+        q2: [x_base, phi_base] - 2自由度入力
         dq2: [dx_base, dphi_base] - 2自由度速度
         model: Pinocchioモデル
         data: Pinocchioデータ
@@ -117,7 +118,7 @@ def solve_constraint_for_2dof_pinocchio(q2, dq2, model, data, L, r, theta_prev=0
     z_base = compute_z_base_using_pinocchio_fk(q2, model, data, L, r)
     dz_base = compute_z_base_velocity(q2, dq2, L)
     
-    # no-slip拘束
+    # no-slip条件を仮定してθ_wheelを計算（オプション）
     wheel_center_velocity = dx_base + L * np.cos(phi_base) * dphi_base
     dtheta_wheel = wheel_center_velocity / r
     theta_wheel = theta_prev + dtheta_wheel * dt
@@ -160,10 +161,10 @@ def verify_constraint_satisfaction(q_full, dq_full, model, data, r, tolerance=1e
 
 def compute_reduced_dynamics(q2, dq2, model, data, L, r, theta_prev=0.0, dt=0.01):
     """
-    縮約動力学計算（2自由度）
+    縮約動力学計算（2自由度入力、3自由度システム）
     
     Args:
-        q2: [x_base, phi_base] - 2自由度設定
+        q2: [x_base, phi_base] - 2自由度入力
         dq2: [dx_base, dphi_base] - 2自由度速度
         model: Pinocchioモデル
         data: Pinocchioデータ
@@ -193,6 +194,7 @@ def compute_reduced_dynamics(q2, dq2, model, data, L, r, theta_prev=0.0, dt=0.01
     h_full = data.nle
     
     # 変換行列T (2x4) - 独立変数の選択
+    # 注: 実際は3自由度システムだが、便宜上2自由度で扱う
     T = np.array([
         [1.0, 0.0, 0.0, 0.0],  # x_base
         [0.0, 0.0, 1.0, 0.0]   # φ_base

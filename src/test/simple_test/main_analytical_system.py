@@ -5,7 +5,7 @@ def build_bodywheel_constrained_model(L=0.2, r=0.04, m_wheel=0.5):
     """
     拘束付きボディ・ホイールモデル
     物理的には4自由度 q = [x_base, z_base, φ_base, θ_wheel]
-    拘束により実質2自由度 (接触点垂直位置・速度=0)
+    拘束により実質3自由度 (ホイール中心高さ拘束のみ)
     """
     model = pin.Model()
 
@@ -91,18 +91,19 @@ def solve_constraint_for_2dof(q2, dq2, L, r):
 
 def solve_constraint_for_2dof_proper(q2, dq2, L, r, theta_prev=0.0, dt=0.01):
     """
-    適切な2自由度拘束解法（ホイール中心高さ拘束）
+    2自由度からの拘束解法（ホイール中心高さ拘束）
     q2 = [x_base, φ_base]  
     dq2 = [dx_base, dφ_base]
     
     拘束条件:
     1. ホイール中心z座標 = r (地面からホイール半径の高さ)
-    2. rolling constraint: no-slip条件
+    
+    注: no-slip条件は拘束ではなく、θ_wheelの計算に使用（オプション）
     """
     x_base, phi_base = q2
     dx_base, dphi_base = dq2
     
-    # 真のno-slip拘束条件（修正版）
+    # no-slip条件を仮定してθ_wheelを計算（オプション）
     # ホイール中心の水平速度 = r × ホイール角速度
     # d(wheel_center_x)/dt = d(x_base + L*sin(φ))/dt = dx_base + L*cos(φ)*dφ = r*dθ
     wheel_center_velocity = dx_base + L * np.cos(phi_base) * dphi_base
@@ -144,9 +145,11 @@ def compute_constraint_jacobian_2dof(q2, L, r):
 
 def compute_reduced_dynamics_2dof(q2, dq2, model, data, L, r, theta_prev=0.0, dt=0.01):
     """
-    2自由度での縮約動力学を計算
+    2自由度入力での縮約動力学を計算（実際は3自由度システム）
     q2 = [x_base, φ_base]
     dq2 = [dx_base, dφ_base]
+    
+    注: θ_wheelはno-slip条件から計算されるが、独立に動ける
     """
     # 拘束を満たす完全な設定を取得
     q_full, dq_full, theta_new = solve_constraint_for_2dof_proper(q2, dq2, L, r, theta_prev, dt)
@@ -160,12 +163,12 @@ def compute_reduced_dynamics_2dof(q2, dq2, model, data, L, r, theta_prev=0.0, dt
     g_full = data.g
     
     # 2自由度への射影行列 T: q_full = T * q2 + constraint_terms
-    # 簡略化のため、線形近似を使用
+    # 注: 実際は3自由度システムだが、便宜上2自由度で扱う
     T = np.zeros((4, 2))
     T[0, 0] = 1.0  # x_base
     T[1, :] = [0.0, -L * np.sin(q2[1])]  # z_base ≈ const - L*sin(φ)*δφ
     T[2, 1] = 1.0  # φ_base
-    T[3, :] = [1.0/r, L*np.sin(q2[1])/r]  # θ_wheel from rolling constraint
+    T[3, :] = [1.0/r, L*np.cos(q2[1])/r]  # θ_wheel from no-slip assumption
     
     # 縮約
     M_reduced = T.T @ M_full @ T
@@ -176,7 +179,8 @@ def compute_reduced_dynamics_2dof(q2, dq2, model, data, L, r, theta_prev=0.0, dt
 
 def simulate_reduced_dynamics_2dof(q2_init, dq2_init, tau_func, model, data, L, r, dt=0.001, T_final=1.0):
     """
-    2自由度縮約動力学のシミュレーション
+    2自由度入力での縮約動力学のシミュレーション
+    注: システムは実際には3自由度
     """
     
     # 時間配列
@@ -234,9 +238,9 @@ def simulate_reduced_dynamics_2dof(q2_init, dq2_init, tau_func, model, data, L, 
 
 def validate_simulation_results_2dof(t_array, q2_history, contact_z_history, contact_vel_z_history, energy_history):
     """
-    2自由度シミュレーション結果の検証
+    シミュレーション結果の検証
     """
-    print("\n=== 2自由度シミュレーション結果の検証 ===")
+    print("\n=== シミュレーション結果の検証 ===")
     
     # 位置拘束維持の確認
     max_pos_violation = np.max(np.abs(contact_z_history))

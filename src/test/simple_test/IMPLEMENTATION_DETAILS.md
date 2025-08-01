@@ -1,4 +1,4 @@
-# Pinocchio統合2自由度拘束システム実装
+# Pinocchio統合3自由度拘束システム実装
 
 ## システム概要
 
@@ -10,7 +10,7 @@
 - **ベースボディ**: 質量1kg、長さL=0.2m
 - **ホイール**: 質量0.5kg、半径r=0.04m
 - **4自由度**: `[x_base, z_base, φ_base, θ_wheel]`
-- **拘束後**: 実質2自由度 `[x_base, φ_base]`
+- **拘束後**: 実質3自由度 `[x_base, φ_base, θ_wheel]`
 
 ### 座標系定義
 ```
@@ -39,11 +39,14 @@ d(wheel_center_z)/dt = dz_base + L*sin(φ)*dφ = 0
 ∴ dz_base = -L*sin(φ)*dφ
 ```
 
-### 3. No-slip拘束（滑り無し条件）
+### 3. ホイール角速度の計算（No-slip条件を仮定した場合）
 ```python
+# もしホイールが滑らない場合の角速度計算
 # ホイール中心の水平速度 = r × ホイール角速度
 d(wheel_center_x)/dt = d(x_base + L*sin(φ))/dt = dx_base + L*cos(φ)*dφ = r*dθ
 ∴ dθ = (dx_base + L*cos(φ)*dφ) / r
+
+# 注意: これは拘束条件ではなく、従属変数の計算に使用（実装では使用していない）
 ```
 
 ## 実装ファイル構成
@@ -60,16 +63,13 @@ src/test/simple_test/
 ## Core実装: 拘束解法（検証付き）
 
 ```python
-def solve_constraint_for_2dof_with_verification(q2, dq2, model, data, L, r, theta_prev=0.0, dt=0.01):
-    x_base, phi_base = q2
-    dx_base, dphi_base = dq2
+def solve_constraint_for_3dof_with_verification(q3, dq3, model, data, L, r):
+    x_base, phi_base, theta_wheel = q3
+    dx_base, dphi_base, dtheta_wheel = dq3
     
     # 解析計算（高速方法）
     z_base = r + L * np.cos(phi_base)                                    # 位置拘束
     dz_base = -L * np.sin(phi_base) * dphi_base                         # 速度拘束
-    wheel_center_velocity = dx_base + L * np.cos(phi_base) * dphi_base   # no-slip拘束
-    dtheta_wheel = wheel_center_velocity / r
-    theta_wheel = theta_prev + dtheta_wheel * dt
     
     q_full = np.array([x_base, z_base, phi_base, theta_wheel])
     dq_full = np.array([dx_base, dz_base, dphi_base, dtheta_wheel])
@@ -83,7 +83,7 @@ def solve_constraint_for_2dof_with_verification(q2, dq2, model, data, L, r, thet
     pos_error = abs(wheel_center_pos[2] - r)        # ホイール中心高さ = r
     vel_error = abs(wheel_center_vel[2] - 0.0)      # ホイール中心z速度 = 0
     
-    return q_full, dq_full, theta_wheel
+    return q_full, dq_full
 ```
 
 ## Pinocchioモデル位置・速度取得
@@ -106,10 +106,10 @@ def get_wheel_center_velocity_from_model(model, data):
 ## 縮約動力学計算
 
 ```python
-def compute_reduced_dynamics_2dof_with_verification(q2, dq2, model, data, L, r, theta_prev=0.0, dt=0.01):
+def compute_reduced_dynamics_3dof_with_verification(q3, dq3, model, data, L, r):
     # 拘束を満たす完全な状態を計算（検証付き）
-    q_full, dq_full, theta_new = solve_constraint_for_2dof_with_verification(
-        q2, dq2, model, data, L, r, theta_prev, dt
+    q_full, dq_full = solve_constraint_for_3dof_with_verification(
+        q3, dq3, model, data, L, r
     )
     
     # Pinocchio動力学計算
@@ -118,55 +118,54 @@ def compute_reduced_dynamics_2dof_with_verification(q2, dq2, model, data, L, r, 
     pin.nonLinearEffects(model, data, q_full, dq_full) # コリオリ・重力項
     h_full = data.nle
     
-    # 変換行列T (2x4)
+    # 変換行列T (3x4)
     T = np.array([
         [1.0, 0.0, 0.0, 0.0],     # x_base
-        [0.0, 0.0, 1.0, 0.0]      # φ_base
+        [0.0, 0.0, 1.0, 0.0],     # φ_base
+        [0.0, 0.0, 0.0, 1.0]      # θ_wheel
     ])
     
     # 縮約動力学
     M_red = T @ M_full @ T.T
     h_red = T @ h_full
     
-    return M_red, np.zeros(2), h_red, q_full, dq_full, theta_new
+    return M_red, np.zeros(3), h_red, q_full, dq_full
 ```
 
 ## シミュレーションループ
 
 ```python
-def simulate_2dof_system_with_verification(q2_init, dq2_init, model, data, L, r, T_sim=5.0, dt=0.01, tau_func=None):
+def simulate_3dof_system_with_verification(q3_init, dq3_init, model, data, L, r, T_sim=5.0, dt=0.01, tau_func=None):
     t_array = np.arange(0, T_sim, dt)
     N = len(t_array)
     
-    q2_history = np.zeros((N, 2))
+    q3_history = np.zeros((N, 3))
     q_full_history = np.zeros((N, 4))
     verification_errors = np.zeros((N, 2))  # [位置誤差, 速度誤差]
     
-    q2 = q2_init.copy()
-    dq2 = dq2_init.copy()
-    theta_accumulated = 0.0
+    q3 = q3_init.copy()
+    dq3 = dq3_init.copy()
     
     for i, t in enumerate(t_array):
-        q2_history[i] = q2
+        q3_history[i] = q3
         
         # 動力学計算（検証付き）
-        M_red, C_red, g_red, q_full, dq_full, theta_new = compute_reduced_dynamics_2dof_with_verification(
-            q2, dq2, model, data, L, r, theta_accumulated, dt
+        M_red, C_red, g_red, q_full, dq_full = compute_reduced_dynamics_3dof_with_verification(
+            q3, dq3, model, data, L, r
         )
-        theta_accumulated = theta_new
         q_full_history[i] = q_full
         
         # 拘束精度記録
-        pos_error, vel_error, _, _, _, _ = compare_analytical_vs_pinocchio(q2, dq2, model, data, L, r)
+        pos_error, vel_error, _, _, _, _ = compare_analytical_vs_pinocchio(q3, dq3, model, data, L, r)
         verification_errors[i] = [pos_error, vel_error]
         
         # 積分
-        tau2 = tau_func(t, q2, dq2) if tau_func else np.zeros(2)
-        ddq2 = np.linalg.solve(M_red, tau2 - C_red - g_red)
-        dq2 = dq2 + ddq2 * dt
-        q2 = q2 + dq2 * dt
+        tau3 = tau_func(t, q3, dq3) if tau_func else np.zeros(3)
+        ddq3 = np.linalg.solve(M_red, tau3 - C_red - g_red)
+        dq3 = dq3 + ddq3 * dt
+        q3 = q3 + dq3 * dt
     
-    return t_array, q2_history, dq2_history, q_full_history, verification_errors
+    return t_array, q3_history, dq3_history, q_full_history, verification_errors
 ```
 
 ## アニメーション表示

@@ -10,7 +10,7 @@
 - **ベースボディ**: 質量1kg、長さL=0.2m
 - **ホイール**: 質量0.5kg、半径r=0.04m
 - **4自由度**: `[x_base, z_base, φ_base, θ_wheel]`
-- **拘束後**: 実質2自由度 `[x_base, φ_base]`
+- **拘束後**: 実質3自由度 `[x_base, φ_base, θ_wheel]`
 
 ### 座標系定義
 ```
@@ -39,11 +39,14 @@ d(wheel_center_z)/dt = dz_base + L*sin(φ)*dφ = 0
 ∴ dz_base = -L*sin(φ)*dφ
 ```
 
-### 3. No-slip拘束（滑り無し条件）
+### 3. ホイール角速度の計算（No-slip条件を仮定した場合）
 ```python
+# もしホイールが滑らない場合の角速度計算
 # ホイール中心の水平速度 = r × ホイール角速度
 d(wheel_center_x)/dt = d(x_base + L*sin(φ))/dt = dx_base + L*cos(φ)*dφ = r*dθ
 ∴ dθ = (dx_base + L*cos(φ)*dφ) / r
+
+# 注意: これは拘束条件ではなく、従属変数の計算に使用
 ```
 
 ## ファイル構成
@@ -80,31 +83,29 @@ python src/test/simple_test/verify_true_noslip.py
 
 ## 理論的背景
 
-### 2Dの運動方程式導出の具体的流れ
+### 運動方程式導出の具体的流れ
 
-#### Step 0: 拘束条件の適用
+#### Step 0: 拘束条件の適用と従属変数の計算
 ```python
-def solve_constraint_for_2dof_proper(q2, dq2, L, r, theta_prev=0.0, dt=0.01):
-    x_base, phi_base = q2  # 独立変数（入力）
-    dx_base, dphi_base = dq2
+def solve_constraint_for_3dof(q3, dq3, L, r):
+    x_base, phi_base, theta_wheel = q3  # 独立変数（入力）
+    dx_base, dphi_base, dtheta_wheel = dq3
     
     # 従属変数を拘束条件から計算
     z_base = r + L * np.cos(phi_base)           # 位置拘束
     dz_base = -L * np.sin(phi_base) * dphi_base # 速度拘束
-    dtheta_wheel = (dx_base + L * np.cos(phi_base) * dphi_base) / r  # no-slip拘束
-    theta_wheel = theta_prev + dtheta_wheel * dt
     
     # 拘束を満たした完全な4自由度状態を構築
     q_full = np.array([x_base, z_base, phi_base, theta_wheel])
     dq_full = np.array([dx_base, dz_base, dphi_base, dtheta_wheel])
     
-    return q_full, dq_full, theta_wheel
+    return q_full, dq_full
 ```
 
 #### Step 1: Pinocchioで4自由度系の動力学項計算
 ```python
 # Step0で拘束を満たした状態でPinocchio計算
-q_full, dq_full = solve_constraint_for_2dof_proper(q2, dq2, L, r)
+q_full, dq_full = solve_constraint_for_3dof(q3, dq3, L, r)
 
 # Pinocchioで動力学項を一括計算（この時点でz_baseは既に決定済み）
 pin.computeAllTerms(model, data, q_full, dq_full)
@@ -115,25 +116,24 @@ g_full = data.g        # 重力項 (4×1)
 
 #### Step 2: 変換行列T構築（ヤコビアン行列）
 ```python
-# T は ∂q_full/∂q2 のヤコビアン行列
-T = np.zeros((4, 2))
+# T は ∂q_full/∂q3 のヤコビアン行列
+T = np.zeros((4, 3))
 T[0, 0] = 1.0                           # ∂x_base/∂x_base = 1
 T[1, 1] = -L * np.sin(phi_base)         # ∂z_base/∂φ_base
 T[2, 1] = 1.0                           # ∂φ_base/∂φ_base = 1  
-T[3, 0] = 1.0/r                         # ∂θ_wheel/∂x_base
-T[3, 1] = L * np.cos(phi_base) / r      # ∂θ_wheel/∂φ_base
+T[3, 2] = 1.0                           # ∂θ_wheel/∂θ_wheel = 1
 ```
 
-#### Step 3: 2自由度系への縮約
+#### Step 3: 3自由度系への縮約
 ```python
 # 縮約された動力学項の計算
-M_reduced = T.T @ M_full @ T    # 2×2質量行列
-C_reduced = T.T @ C_full        # 2×1コリオリ項
-g_reduced = T.T @ g_full        # 2×1重力項
+M_reduced = T.T @ M_full @ T    # 3×3質量行列
+C_reduced = T.T @ C_full        # 3×1コリオリ項
+g_reduced = T.T @ g_full        # 3×1重力項
 
-# 2自由度での運動方程式
-# M_reduced * ddq2 = tau2 - C_reduced - g_reduced
-ddq2 = np.linalg.solve(M_reduced, tau2 - C_reduced - g_reduced)
+# 3自由度での運動方程式
+# M_reduced * ddq3 = tau3 - C_reduced - g_reduced
+ddq3 = np.linalg.solve(M_reduced, tau3 - C_reduced - g_reduced)
 ```
 
 ### 使用するPinocchio関数

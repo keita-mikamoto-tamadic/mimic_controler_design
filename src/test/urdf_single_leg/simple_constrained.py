@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 シンプルな拘束付きシミュレーション
-simple_testの手法を3関節版に適用
+simple_testの手法をURDF single_legモデル（6自由度→5自由度）に適用
+フローティングベース（3自由度）＋3関節 - 1拘束（接地）= 5自由度
 """
 
 import pinocchio as pin
@@ -50,8 +51,13 @@ def compute_base_height(phi1, phi2, model, data):
     
     return base_height
 
+def compute_com(model, data, q):
+    """全体の質量中心を計算"""
+    pin.centerOfMass(model, data, q, False)  # False = velocityを計算しない
+    return data.com[0].copy()  # 全体のCoM位置をコピーして返す
+
 def compute_3dof_dynamics(x_base, phi1, phi2, dx_base, dphi1, dphi2, model, data):
-    """3自由度動力学: [x_base, phi1, phi2]が独立"""
+    """5自由度動力学: [x_base, z_base, pitch_base, phi1, phi2]から拘束で縮約"""
     # ベース高度を拘束条件から計算
     q_temp = pin.neutral(model)
     q_temp[0] = x_base  # X position（変動する）
@@ -134,12 +140,13 @@ def get_joint_positions(q, model, data):
     
     return np.array(positions)
 
-def create_robot_animation(t_array, joint_positions_history, phi1_init, phi2_init):
-    """ロボットの倒れる様子をx-z平面でアニメーション描画"""
+def create_robot_animation(t_array, joint_positions_history, com_history, phi1_init, phi2_init):
+    """ロボットの倒れる様子をx-z平面でアニメーション描画（質量中心付き）"""
     print("🎬 アニメーション作成中...")
     
     # データを numpy 配列に変換
     joint_positions_array = np.array(joint_positions_history)
+    com_array = np.array(com_history)
     n_frames = len(joint_positions_array)
     n_joints = joint_positions_array.shape[1]
     
@@ -169,6 +176,11 @@ def create_robot_animation(t_array, joint_positions_history, phi1_init, phi2_ini
     wheel_circle = plt.Circle((0, 0), WHEEL_RADIUS, fill=False, color='red', linewidth=2)
     ax.add_patch(wheel_circle)
     
+    # 質量中心
+    com_point, = ax.plot([], [], 'go', markersize=10, label='Center of Mass', zorder=5)
+    com_trajectory_x, com_trajectory_z = [], []
+    com_trajectory_line, = ax.plot([], [], 'g--', alpha=0.5, linewidth=1, label='CoM Trajectory')
+    
     # 軌跡
     trajectory_x, trajectory_z = [], []
     trajectory_line, = ax.plot([], [], 'r--', alpha=0.5, linewidth=1, label='Base Trajectory')
@@ -196,6 +208,15 @@ def create_robot_animation(t_array, joint_positions_history, phi1_init, phi2_ini
         wheel_pos = positions[-1]
         wheel_circle.center = (wheel_pos[0], wheel_pos[2])
         
+        # 質量中心の更新
+        com_pos = com_array[frame]
+        com_point.set_data([com_pos[0]], [com_pos[2]])
+        
+        # 質量中心の軌跡
+        com_trajectory_x.append(com_pos[0])
+        com_trajectory_z.append(com_pos[2])
+        com_trajectory_line.set_data(com_trajectory_x, com_trajectory_z)
+        
         # ベースの軌跡（最初の関節=ベース）
         trajectory_x.append(positions[0, 0])
         trajectory_z.append(positions[0, 2])
@@ -205,7 +226,7 @@ def create_robot_animation(t_array, joint_positions_history, phi1_init, phi2_ini
         current_time = t_array[frame] if frame < len(t_array) else t_array[-1]
         time_text.set_text(f'Time: {current_time:.2f}s')
         
-        return robot_lines, wheel_circle, trajectory_line, time_text
+        return robot_lines, wheel_circle, com_point, com_trajectory_line, trajectory_line, time_text
     
     # アニメーション作成
     anim = animation.FuncAnimation(fig, animate, frames=n_frames, 
@@ -220,10 +241,10 @@ def create_robot_animation(t_array, joint_positions_history, phi1_init, phi2_ini
     print(f"✅ アニメーション完成: {filename}")
 
 def simulate_simple(phi1_init, phi2_init, T_sim=3.0, dt=0.02):
-    """3自由度シミュレーション: [x_base, phi1, phi2]"""
+    """5自由度シミュレーション（縮約後）: 実効的には[x_base, phi1, phi2]で制御"""
     model, data = load_model()
     
-    # 3自由度状態
+    # 独立変数（実効的に制御する3変数）
     x_base = 0.0  # 初期X位置
     phi1, phi2 = phi1_init, phi2_init
     dx_base = 0.0  # 初期X速度
@@ -236,21 +257,26 @@ def simulate_simple(phi1_init, phi2_init, T_sim=3.0, dt=0.02):
     base_heights = np.zeros(N)
     x_positions = np.zeros(N)
     joint_positions_history = []  # 各関節位置の時系列データ
+    com_history = []  # 質量中心の時系列データ
     
-    print(f"3自由度拘束シミュレーション（simple_testアプローチ）")
+    print(f"5自由度拘束シミュレーション（simple_testアプローチ）")
     print(f"初期: x={x_base:.3f}, φ1={phi1_init:.3f}, φ2={phi2_init:.3f}")
     
     for i, t in enumerate(t_array):
         state_history[i] = [x_base, phi1, phi2]
         x_positions[i] = x_base
         
-        # 3自由度動力学計算
+        # 動力学計算（拘束による縮約後）
         M_red, g_red, C_red, q = compute_3dof_dynamics(x_base, phi1, phi2, dx_base, dphi1, dphi2, model, data)
         base_heights[i] = q[2]
         
         # 各関節位置を記録
         joint_positions = get_joint_positions(q, model, data)
         joint_positions_history.append(joint_positions)
+        
+        # 質量中心を計算・記録
+        com = compute_com(model, data, q)
+        com_history.append(com)
         
         if i % 20 == 0:
             print(f"t={t:.2f}s: x={x_base:.3f}, φ1={phi1:.3f}, φ2={phi2:.3f}, h={base_heights[i]:.3f}m")
@@ -280,7 +306,7 @@ def simulate_simple(phi1_init, phi2_init, T_sim=3.0, dt=0.02):
     print(f"完了: 最終位置 x={x_base:.3f}m, 高度={base_heights[-1]:.3f}m")
     
     # アニメーション描画
-    create_robot_animation(t_array[:i+1], joint_positions_history, phi1_init, phi2_init)
+    create_robot_animation(t_array[:i+1], joint_positions_history, com_history, phi1_init, phi2_init)
     
     # プロット（3つのグラフ）
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
