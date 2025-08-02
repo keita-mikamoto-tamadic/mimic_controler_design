@@ -325,19 +325,19 @@ def simulate_noslip_dynamics(phi1_init, phi2_init, T_sim=3.0, dt=0.02):
         'phi2_init': phi2_init
     }
     
+    # 検証用データを保存（オプション）
+    import pickle
+    filename = f'noslip_results_phi1_{phi1_init:.1f}_phi2_{phi2_init:.1f}.pkl'
+    with open(filename, 'wb') as f:
+        pickle.dump(results, f)
+    print(f"💾 検証用データ保存: {filename}")
+    
     return results
 
-def simulate_noslip(phi1_init, phi2_init, T_sim=3.0, dt=0.02, enable_verification=True):
+def simulate_noslip(phi1_init, phi2_init, T_sim=3.0, dt=0.02):
     """ノンスリップシミュレーションのメイン関数（計算と表示を統合）"""
     # 動力学計算を実行
     results = simulate_noslip_dynamics(phi1_init, phi2_init, T_sim, dt)
-    
-    # 拘束精度検証
-    if enable_verification and len(results['q_history']) > 0:
-        from noslip_verification import comprehensive_constraint_verification, plot_constraint_verification_results
-        print("\n🔍 拘束精度検証を実行中...")
-        verification_results = comprehensive_constraint_verification(results['t_array'], results['q_history'])
-        plot_constraint_verification_results(results['t_array'], verification_results)
     
     # アニメーション描画
     create_noslip_robot_animation(

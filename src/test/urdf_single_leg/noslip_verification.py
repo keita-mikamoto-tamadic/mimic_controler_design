@@ -51,14 +51,30 @@ def verify_noslip_constraint(q_history, dt, tolerance=1e-12):
     
     model, data = load_model()
     
+    # 角度の連続性を保つための累積角度
+    theta_wheel_cumulative = 0.0
+    theta_wheel_prev = theta_wheel_init
+    
     for i in range(N):
         q = q_array[i]
         
         # 現在のベース位置
         x_base_current = q[0]
         
-        # 現在のホイール角度
+        # 現在のホイール角度（-π～π）
         theta_wheel_current = np.arctan2(q[12], q[11])
+        
+        # 角度差を計算（-π～πの範囲で正規化）
+        if i > 0:
+            angle_diff = theta_wheel_current - theta_wheel_prev
+            # 2π跨ぎを修正
+            if angle_diff > np.pi:
+                angle_diff -= 2 * np.pi
+            elif angle_diff < -np.pi:
+                angle_diff += 2 * np.pi
+            theta_wheel_cumulative += angle_diff
+        
+        theta_wheel_prev = theta_wheel_current
         
         # ホイール中心位置を正確に計算
         pin.forwardKinematics(model, data, q)
@@ -73,8 +89,8 @@ def verify_noslip_constraint(q_history, dt, tolerance=1e-12):
         wheel_center_displacement = wheel_center_pos[0] - wheel_center_x_init
         wheel_center_displacements[i] = wheel_center_displacement
         
-        # ホイール回転による移動距離
-        wheel_rotation_distance = (theta_wheel_current - theta_wheel_init) * WHEEL_RADIUS
+        # ホイール回転による移動距離（累積角度を使用、符号修正）
+        wheel_rotation_distance = -theta_wheel_cumulative * WHEEL_RADIUS
         wheel_rotation_distances[i] = wheel_rotation_distance
         
         # スリップ誤差
