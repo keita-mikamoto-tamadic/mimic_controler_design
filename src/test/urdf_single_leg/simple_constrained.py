@@ -7,8 +7,8 @@ simple_testの手法をURDF single_legモデル（6自由度→5自由度）に�
 
 import pinocchio as pin
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+from animation_utils import create_robot_animation
+from plotting_utils import plot_simple_results
 import os
 
 WHEEL_RADIUS = (77.95 / 2) / 1000  # [m]
@@ -140,108 +140,9 @@ def get_joint_positions(q, model, data):
     
     return np.array(positions)
 
-def create_robot_animation(t_array, joint_positions_history, com_history, phi1_init, phi2_init):
-    """ロボットの倒れる様子をx-z平面でアニメーション描画（質量中心付き）"""
-    print("🎬 アニメーション作成中...")
-    
-    # データを numpy 配列に変換
-    joint_positions_array = np.array(joint_positions_history)
-    com_array = np.array(com_history)
-    n_frames = len(joint_positions_array)
-    n_joints = joint_positions_array.shape[1]
-    
-    # フィギュアとアクシスの設定
-    fig, ax = plt.subplots(figsize=(12, 8))
-    
-    # プロット範囲を設定（全フレームの最大最小を考慮）
-    all_x = joint_positions_array[:, :, 0].flatten()
-    all_z = joint_positions_array[:, :, 2].flatten()
-    
-    x_min, x_max = np.min(all_x) - 0.1, np.max(all_x) + 0.1
-    z_min, z_max = np.min(all_z) - 0.1, np.max(all_z) + 0.1
-    
-    ax.set_xlim(x_min, x_max)
-    ax.set_ylim(z_min, z_max)
-    ax.set_xlabel('X Position [m]', fontsize=12)
-    ax.set_ylabel('Z Position [m]', fontsize=12)
-    ax.set_title(f'Robot Animation (φ1={phi1_init:.1f}, φ2={phi2_init:.1f})', fontsize=14)
-    ax.grid(True, alpha=0.3)
-    ax.set_aspect('equal')
-    
-    # 地面ライン（Z=0）
-    ax.axhline(y=0, color='brown', linewidth=2, alpha=0.7, label='Ground')
-    
-    # ロボットの線分とポイント
-    robot_lines, = ax.plot([], [], 'b-', linewidth=3, marker='o', markersize=6, label='Robot')
-    wheel_circle = plt.Circle((0, 0), WHEEL_RADIUS, fill=False, color='red', linewidth=2)
-    ax.add_patch(wheel_circle)
-    
-    # 質量中心
-    com_point, = ax.plot([], [], 'go', markersize=10, label='Center of Mass', zorder=5)
-    com_trajectory_x, com_trajectory_z = [], []
-    com_trajectory_line, = ax.plot([], [], 'g--', alpha=0.5, linewidth=1, label='CoM Trajectory')
-    
-    # 軌跡
-    trajectory_x, trajectory_z = [], []
-    trajectory_line, = ax.plot([], [], 'r--', alpha=0.5, linewidth=1, label='Base Trajectory')
-    
-    # 時間表示
-    time_text = ax.text(0.02, 0.98, '', transform=ax.transAxes, fontsize=12,
-                       verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
-    
-    ax.legend()
-    
-    def animate(frame):
-        if frame >= n_frames:
-            frame = n_frames - 1
-            
-        # 現在フレームの関節位置
-        positions = joint_positions_array[frame]
-        
-        # ロボットの線分を描画（関節を線で繋ぐ）
-        x_coords = positions[:, 0]
-        z_coords = positions[:, 2]
-        
-        robot_lines.set_data(x_coords, z_coords)
-        
-        # ホイール円の位置更新（最後の関節=ホイール）
-        wheel_pos = positions[-1]
-        wheel_circle.center = (wheel_pos[0], wheel_pos[2])
-        
-        # 質量中心の更新
-        com_pos = com_array[frame]
-        com_point.set_data([com_pos[0]], [com_pos[2]])
-        
-        # 質量中心の軌跡
-        com_trajectory_x.append(com_pos[0])
-        com_trajectory_z.append(com_pos[2])
-        com_trajectory_line.set_data(com_trajectory_x, com_trajectory_z)
-        
-        # ベースの軌跡（最初の関節=ベース）
-        trajectory_x.append(positions[0, 0])
-        trajectory_z.append(positions[0, 2])
-        trajectory_line.set_data(trajectory_x, trajectory_z)
-        
-        # 時間表示
-        current_time = t_array[frame] if frame < len(t_array) else t_array[-1]
-        time_text.set_text(f'Time: {current_time:.2f}s')
-        
-        return robot_lines, wheel_circle, com_point, com_trajectory_line, trajectory_line, time_text
-    
-    # アニメーション作成
-    anim = animation.FuncAnimation(fig, animate, frames=n_frames, 
-                                 interval=50, blit=True, repeat=True)
-    
-    # 保存
-    filename = f'robot_animation_phi1_{phi1_init:.1f}_phi2_{phi2_init:.1f}.gif'
-    print(f"💾 アニメーション保存中: {filename}")
-    anim.save(filename, writer='pillow', fps=20)
-    
-    plt.show()
-    print(f"✅ アニメーション完成: {filename}")
 
-def simulate_simple(phi1_init, phi2_init, T_sim=3.0, dt=0.02):
-    """5自由度シミュレーション（縮約後）: 実効的には[x_base, phi1, phi2]で制御"""
+def simulate_simple_dynamics(phi1_init, phi2_init, T_sim=3.0, dt=0.02):
+    """5自由度動力学シミュレーション（計算のみ）"""
     model, data = load_model()
     
     # 独立変数（実効的に制御する3変数）
@@ -305,40 +206,43 @@ def simulate_simple(phi1_init, phi2_init, T_sim=3.0, dt=0.02):
     
     print(f"完了: 最終位置 x={x_base:.3f}m, 高度={base_heights[-1]:.3f}m")
     
+    results = {
+        't_array': t_array[:i+1],
+        'state_history': state_history[:i+1],
+        'base_heights': base_heights[:i+1],
+        'x_positions': x_positions[:i+1],
+        'joint_positions_history': joint_positions_history,
+        'com_history': com_history,
+        'phi1_init': phi1_init,
+        'phi2_init': phi2_init
+    }
+    
+    return results
+
+def simulate_simple(phi1_init, phi2_init, T_sim=3.0, dt=0.02):
+    """シンプル拘束シミュレーションのメイン関数（計算と表示を統合）"""
+    # 動力学計算を実行
+    results = simulate_simple_dynamics(phi1_init, phi2_init, T_sim, dt)
+    
     # アニメーション描画
-    create_robot_animation(t_array[:i+1], joint_positions_history, com_history, phi1_init, phi2_init)
+    create_robot_animation(
+        results['t_array'], 
+        results['joint_positions_history'], 
+        results['com_history'], 
+        results['phi1_init'], 
+        results['phi2_init'], 
+        WHEEL_RADIUS
+    )
     
-    # プロット（3つのグラフ）
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
+    # 静止画グラフ表示
+    plot_simple_results(
+        results['t_array'],
+        results['state_history'],
+        results['base_heights'],
+        results['x_positions']
+    )
     
-    # 関節角度
-    ax1.plot(t_array[:i+1], state_history[:i+1, 1] * 180/np.pi, 'r-', label='φ1')
-    ax1.plot(t_array[:i+1], state_history[:i+1, 2] * 180/np.pi, 'b-', label='φ2')
-    ax1.set_xlabel('Time [s]')
-    ax1.set_ylabel('Angle [deg]')
-    ax1.set_title('Joint Angles')
-    ax1.legend()
-    ax1.grid(True)
-    
-    # ベース高度
-    ax2.plot(t_array[:i+1], base_heights[:i+1], 'g-', linewidth=2)
-    ax2.set_xlabel('Time [s]')
-    ax2.set_ylabel('Base Height [m]')
-    ax2.set_title('Base Height (Should Fall!)')
-    ax2.grid(True)
-    
-    # ベースX位置
-    ax3.plot(t_array[:i+1], x_positions[:i+1], 'm-', linewidth=2)
-    ax3.set_xlabel('Time [s]')
-    ax3.set_ylabel('Base X Position [m]')
-    ax3.set_title('Base Horizontal Motion')
-    ax3.grid(True)
-    
-    plt.tight_layout()
-    plt.savefig('3dof_constrained_result.png', dpi=150, bbox_inches='tight')
-    plt.show()
-    
-    return t_array[:i+1], state_history[:i+1], base_heights[:i+1], x_positions[:i+1]
+    return results
 
 if __name__ == "__main__":
     print("🧪 異なる初期条件でテスト:")
