@@ -13,6 +13,20 @@
 
 本ドキュメントでは、以下の前提のもとに議論を進める：
 
+### urdfに明示されていないパラメータ
+タイヤの半径：wheel_radius = (77.95 / 2) / 1000 [mm]
+
+- 運動学的ツリー構造
+```
+universe (JointModelRX)
+    └─ root_joint (JointModelFreeFlyer)
+        ├── upper_link_R_joint (JointModelRUBY)
+        │   └─ lower_link_R_joint (JointModelRUBY)
+        │       └─ wheel_R_joint (JointModelRUBY)
+        └─ upper_link_L_joint (JointModelRUBY)
+            └─ lower_link_L_joint (JointModelRUBY)
+                └─ wheel_L_joint (JointModelRUBY)
+
 * ロボットの運動方程式は、フル状態ベクトル `x = [q; dq]` に対してすでに導出済みとする
 
 * モデルは線形化され、状態方程式は以下の形式で与えられている：
@@ -22,6 +36,14 @@
   ```
 
 * `q`：関節角度ベクトル、`dq`：関節角速度、`u`：関節トルク
+
+* 平衡点
+- upper_link_R_joint = 52deg
+- upper_link_L_joint = 52deg
+- lower_link_R_joint = -104deg(下記関節間制約を満たす)
+- lower_link_L_joint = -104deg(下記関節間制約を満たす)
+- body z位置 = 上記平衡点を非線形順運動学で解いたときのタイヤのz位置拘束(ホイールのz = -半径がz=0)を満たす位置にオフセット
+- その他 = 0deg, 0m
 
 ## 3. 幾何学的拘束と状態変数の縮約
 

@@ -1,0 +1,94 @@
+# 3Dロボットシミュレーション設定ファイル
+
+# シミュレーション設定
+simulation:
+  time: 1.1      # シミュレーション時間 [s]
+  dt: 0.005      # 時間ステップ [s]
+
+# 初期状態設定（9自由度）
+initial_state:
+  # ベース位置
+  x_base: 0.0    # X座標 [m]
+  y_base: 0.0    # Y座標 [m]
+  
+  # ベース姿勢
+  pitch: 0.0     # ピッチ角 [rad]
+  
+  # 左脚関節
+  phi_L_lower: -0.4   # 左下腿角度 [rad]
+  phi_L_upper: 0.2    # 左上腿角度 [rad]
+  
+  # 右脚関節
+  phi_R_lower: -0.3   # 右下腿角度 [rad]
+  phi_R_upper: 0.15    # 右上腿角度 [rad]
+  
+  # ホイール角度
+  wheel_L: 0.0   # 左ホイール角度 [rad]
+  wheel_R: 0.0   # 右ホイール角度 [rad]
+
+# 複数シナリオ設定（オプション）
+scenarios:
+  - name: "対称初期状態（標準）"
+    initial_state:
+      x_base: 0.0
+      y_base: 0.0
+      pitch: 0.0
+      phi_L_lower: -0.1
+      phi_R_lower: -0.1
+      phi_L_upper: 0.2
+      phi_R_upper: 0.2
+      wheel_L: 0.0
+      wheel_R: 0.0
+    simulation:
+      time: 2.0
+      dt: 0.005
+      
+  - name: "非対称初期状態（膝）"
+    initial_state:
+      x_base: 0.0
+      y_base: 0.0
+      pitch: 0.0
+      phi_L_lower: -0.2
+      phi_R_lower: -0.05
+      phi_L_upper: 0.2
+      phi_R_upper: 0.2
+      wheel_L: 0.0
+      wheel_R: 0.0
+    simulation:
+      time: 2.0
+      dt: 0.005
+      
+  - name: "非対称初期状態（腰）"
+    initial_state:
+      x_base: 0.0
+      y_base: 0.0
+      pitch: 0.0
+      phi_L_lower: -0.1
+      phi_R_lower: -0.1
+      phi_L_upper: 0.3
+      phi_R_upper: 0.1
+      wheel_L: 0.0
+      wheel_R: 0.0
+    simulation:
+      time: 2.0
+      dt: 0.005
+      
+  - name: "初期ホイール回転差"
+    initial_state:
+      x_base: 0.0
+      y_base: 0.0
+      pitch: 0.0
+      phi_L_lower: -0.1
+      phi_R_lower: -0.1
+      phi_L_upper: 0.2
+      phi_R_upper: 0.2
+      wheel_L: 0.5
+      wheel_R: -0.5
+    simulation:
+      time: 2.0
+      dt: 0.005
+
+# ロボットパラメータ（将来的な拡張用）
+robot:
+  wheel_radius: 0.075  # ホイール半径 [m]
+  track_width: 0.266   # トレッド幅 [m]
