@@ -1,0 +1,63 @@
+# 4自由度pitch考慮システムの初期値設定
+simulation:
+  time:
+    T_sim: 1.0    # シミュレーション時間 [s]
+    dt: 0.01      # 時間刻み [s]
+  
+  # 初期状態（4自由度の独立変数）
+  initial_state:
+    x_base: 0.0         # ベースのx位置 [m]
+    pitch_base_deg: 10.0  # ベースピッチ角 [度]
+    phi1: 0.3           # 股関節角度 [rad]
+    phi2: -0.6          # 膝関節角度 [rad]
+  
+  # 初期速度（すべて0で固定）
+  initial_velocity:
+    dx_base: 0.0        # ベースx方向速度 [m/s]
+    dpitch_base: 0.0    # ベースピッチ角速度 [rad/s]
+    dphi1: 0.0          # 股関節角速度 [rad/s]
+    dphi2: 0.0          # 膝関節角速度 [rad/s]
+
+# テスト用の複数設定
+test_cases:
+  case1:
+    name: "基本テスト"
+    x_base: 0.0
+    pitch_base_deg: 0.0
+    phi1: 0.3
+    phi2: -0.6
+    
+  case2:
+    name: "中程度の傾き"
+    x_base: 0.0
+    pitch_base_deg: 0.0
+    phi1: 3.2
+    phi2: -0.6
+    
+  case3:
+    name: "大きな傾き"
+    x_base: 0.0
+    pitch_base_deg: 30.0
+    phi1: 0.5
+    phi2: -1.0
+    
+  case4:
+    name: "負の傾き"
+    x_base: 0.0
+    pitch_base_deg: -15.0
+    phi1: 0.2
+    phi2: -0.4
+    
+  case5:
+    name: "異なる関節角"
+    x_base: 0.0
+    pitch_base_deg: 20.0
+    phi1: 0.8
+    phi2: -1.2
+
+# 出力設定
+output:
+  save_animation: true
+  save_plots: true
+  animation_fps: 20
+  plot_dpi: 150

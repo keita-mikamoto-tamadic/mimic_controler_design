@@ -17,7 +17,7 @@ class ConstraintReduction:
         self.n_full_q = 10    # フル位置次元（独立変数）
         self.n_full_v = 10    # フル速度次元
         self.n_full_x = 20    # フル状態次元 (q + dq)
-        self.n_full_u = 10    # フル入力次元
+        self.n_full_u = 6     # フル入力次元（実アクチュエータのみ）
         
         # 縮約後の次元数（実装中に決定）
         self.n_reduced_q = None
@@ -49,13 +49,14 @@ class ConstraintReduction:
         # [x_base, y_base, pitch, yaw, phi_L_lower, phi_R_lower, phi_L_upper, phi_R_upper, wheel_L, wheel_R]
         # [dx_base, dy_base, dpitch, dyaw, dphi_L_lower, dphi_R_lower, dphi_L_upper, dphi_R_upper, dwheel_L, dwheel_R]
         
-        # 拘束関係の分析
-        # phi_L_upper と phi_L_lower の関係: upper = -2 * lower (拘束あり)
-        # phi_R_upper と phi_R_lower の関係: upper = -2 * lower (拘束あり)
+        # 拘束関係の分析（urdf/01_ApproximationModel.md準拠）
+        # theta2 = -2 * theta1 → lower = -2 * upper
+        # phi_L_lower = -2 * phi_L_upper (拘束あり)
+        # phi_R_lower = -2 * phi_R_upper (拘束あり)
         
-        # 独立変数の選択
-        # 位置: [x_base, y_base, pitch, yaw, phi_L_lower, phi_R_lower, wheel_L, wheel_R] (8変数)
-        # 速度: [dx_base, dy_base, dpitch, dyaw, dphi_L_lower, dphi_R_lower, dwheel_L, dwheel_R] (8変数)
+        # 独立変数の選択（正しい）
+        # 位置: [x_base, y_base, pitch, yaw, phi_L_upper, phi_R_upper, wheel_L, wheel_R] (8変数)
+        # 速度: [dx_base, dy_base, dpitch, dyaw, dphi_L_upper, dphi_R_upper, dwheel_L, dwheel_R] (8変数)
         # 縮約状態: z = 16次元
         
         self.n_reduced_q = 8
@@ -65,8 +66,8 @@ class ConstraintReduction:
         # 位置変換行列 T_q (10 × 8)
         T_q = np.zeros((self.n_full_q, self.n_reduced_q))
         
-        # 独立変数のマッピング
-        # z_pos = [x_base, y_base, pitch, yaw, phi_L_lower, phi_R_lower, wheel_L, wheel_R]
+        # 独立変数のマッピング（修正版）
+        # z_pos = [x_base, y_base, pitch, yaw, phi_L_upper, phi_R_upper, wheel_L, wheel_R]
         # x_pos = [x_base, y_base, pitch, yaw, phi_L_lower, phi_R_lower, phi_L_upper, phi_R_upper, wheel_L, wheel_R]
         
         # 直接コピー部分
@@ -74,14 +75,14 @@ class ConstraintReduction:
         T_q[1, 1] = 1.0  # y_base  
         T_q[2, 2] = 1.0  # pitch
         T_q[3, 3] = 1.0  # yaw
-        T_q[4, 4] = 1.0  # phi_L_lower
-        T_q[5, 5] = 1.0  # phi_R_lower
+        T_q[6, 4] = 1.0  # phi_L_upper (独立変数)
+        T_q[7, 5] = 1.0  # phi_R_upper (独立変数)
         T_q[8, 6] = 1.0  # wheel_L
         T_q[9, 7] = 1.0  # wheel_R
         
-        # 拘束関係部分 (upper = -2 * lower)
-        T_q[6, 4] = -2.0  # phi_L_upper = -2 * phi_L_lower
-        T_q[7, 5] = -2.0  # phi_R_upper = -2 * phi_R_lower
+        # 拘束関係部分 (lower = -2 * upper) - 正しい方向
+        T_q[4, 4] = -2.0  # phi_L_lower = -2 * phi_L_upper
+        T_q[5, 5] = -2.0  # phi_R_lower = -2 * phi_R_upper
         
         # 速度変換行列 T_v (10 × 8) - 位置と同じ構造
         T_v = T_q.copy()
@@ -94,7 +95,7 @@ class ConstraintReduction:
         print(f"     位置縮約: {self.n_full_q} → {self.n_reduced_q}")
         print(f"     速度縮約: {self.n_full_v} → {self.n_reduced_v}")
         print(f"     状態縮約: {self.n_full_x} → {self.n_reduced_x}")
-        print(f"     拘束関係適用: phi_upper = -2 * phi_lower")
+        print(f"     拘束関係適用: phi_lower = -2 * phi_upper (正しい)")
         
         return T
     
@@ -119,36 +120,33 @@ class ConstraintReduction:
         print(f"     平衡点角度: {theta1_eq:.4f} rad ({np.rad2deg(theta1_eq):.1f} deg)")
         print(f"     トルク係数: f(theta1_eq) = {f_eq:.3f}")
         
-        # 独立制御入力の選択
-        # フルトルク: [tau_x, tau_y, tau_pitch, tau_yaw, tau_L_lower, tau_R_lower, tau_L_upper, tau_R_upper, tau_wheel_L, tau_wheel_R]
-        # 拘束: tau_L_upper = f_eq * tau_L_lower, tau_R_upper = f_eq * tau_R_lower
-        # 独立入力: [tau_x, tau_y, tau_pitch, tau_yaw, tau_L_lower, tau_R_lower, tau_wheel_L, tau_wheel_R] (8変数)
+        # 独立制御入力の選択（実アクチュエータのみ）
+        # フルトルク: [tau_L_lower, tau_R_lower, tau_L_upper, tau_R_upper, tau_wheel_L, tau_wheel_R] (6変数)
+        # 拘束: tau_L_lower = f_eq * tau_L_upper, tau_R_lower = f_eq * tau_R_upper (正しい)
+        # 独立入力: [tau_L_upper, tau_R_upper, tau_wheel_L, tau_wheel_R] (4変数)
         
-        self.n_reduced_u = 8
+        self.n_reduced_u = 4
         
-        # 入力変換行列 T_u (10 × 8)
+        # 入力変換行列 T_u (6 × 4)
         T_u = np.zeros((self.n_full_u, self.n_reduced_u))
         
-        # 独立入力のマッピング
-        # u_reduced = [tau_x, tau_y, tau_pitch, tau_yaw, tau_L_lower, tau_R_lower, tau_wheel_L, tau_wheel_R]
-        # u_full = [tau_x, tau_y, tau_pitch, tau_yaw, tau_L_lower, tau_R_lower, tau_L_upper, tau_R_upper, tau_wheel_L, tau_wheel_R]
+        # 独立入力のマッピング（Pinocchio関節順序準拠）
+        # u_reduced = [tau_L_upper, tau_R_upper, tau_wheel_L, tau_wheel_R]
+        # u_full = [tau_L_upper, tau_L_lower, tau_wheel_L, tau_R_upper, tau_R_lower, tau_wheel_R]
+        #          (Pinocchio順序: [L_upper, L_lower, wheel_L, R_upper, R_lower, wheel_R])
         
-        # 直接コピー部分
-        T_u[0, 0] = 1.0  # tau_x
-        T_u[1, 1] = 1.0  # tau_y
-        T_u[2, 2] = 1.0  # tau_pitch
-        T_u[3, 3] = 1.0  # tau_yaw
-        T_u[4, 4] = 1.0  # tau_L_lower
-        T_u[5, 5] = 1.0  # tau_R_lower
-        T_u[8, 6] = 1.0  # tau_wheel_L
-        T_u[9, 7] = 1.0  # tau_wheel_R
+        # 直接コピー部分（独立入力）
+        T_u[0, 0] = 1.0  # tau_L_upper (独立入力)
+        T_u[2, 2] = 1.0  # tau_wheel_L  
+        T_u[3, 1] = 1.0  # tau_R_upper (独立入力)
+        T_u[5, 3] = 1.0  # tau_wheel_R
         
-        # トルク拘束関係 (upper = f_eq * lower)
-        T_u[6, 4] = f_eq  # tau_L_upper = f_eq * tau_L_lower
-        T_u[7, 5] = f_eq  # tau_R_upper = f_eq * tau_R_lower
+        # トルク拘束関係 (lower = f_eq * upper) - 正しい方向
+        T_u[1, 0] = f_eq  # tau_L_lower = f_eq * tau_L_upper
+        T_u[4, 1] = f_eq  # tau_R_lower = f_eq * tau_R_upper
         
         print(f"     入力縮約: {self.n_full_u} → {self.n_reduced_u}")
-        print(f"     トルク拘束適用: tau_upper = {f_eq:.3f} * tau_lower")
+        print(f"     トルク拘束適用: tau_lower = {f_eq:.3f} * tau_upper (正しい)")
         
         return T_u
     
@@ -172,13 +170,22 @@ class ConstraintReduction:
         # B_reduced = T^T * B_full * T_u
         
         try:
+            # 元のB_fullが10次元なので、そのまま使用して関節トルク部分を抽出
+            # B_full.shape=(20, 10): 10次元独立変数に対応
+            # 最後の6次元が関節トルク: [4, 5, 6, 7, 8, 9]
+            joint_indices = [4, 5, 6, 7, 8, 9]  # 関節トルク部分(6次元)
+            B_joints = B_full[:, joint_indices]  # (20, 6)
+            
+            print(f"   関節トルクインデックス: {joint_indices}")
+            print(f"   B行列縮約: {B_full.shape} → {B_joints.shape} (関節トルクのみ)")
+            
             A_reduced = self.T.T @ A_full @ self.T
-            B_reduced = self.T.T @ B_full @ self.T_u
+            B_reduced = self.T.T @ B_joints @ self.T_u
             
             print(f"   出力: A_reduced={A_reduced.shape}, B_reduced={B_reduced.shape}")
             
             # 縮約の効果分析
-            self._analyze_reduction_effect(A_full, B_full, A_reduced, B_reduced)
+            self._analyze_reduction_effect(A_full, B_joints, A_reduced, B_reduced)
             
             return A_reduced, B_reduced
             

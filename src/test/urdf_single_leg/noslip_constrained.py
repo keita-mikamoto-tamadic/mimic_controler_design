@@ -23,7 +23,7 @@ def load_model():
     
     model = pin.buildModelFromUrdf(urdf_path, pin.JointModelFreeFlyer())
     data = model.createData()
-    model.gravity.linear = np.array([0, 0, +9.81])  # 上向き重力でテスト
+    model.gravity.linear = np.array([0, 0, -9.81])  # 下向き重力（正しい物理）
     
     return model, data
 
@@ -293,7 +293,7 @@ def simulate_noslip_dynamics(phi1_init, phi2_init, T_sim=3.0, dt=0.02):
         tau = np.zeros(3)  # 無制御
         
         try:
-            dd_state = np.linalg.solve(M_red, tau - g_red - C_red)
+            dd_state = np.linalg.solve(M_red, tau + g_red - C_red)
         except:
             dd_state = np.zeros(3)
         

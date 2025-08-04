@@ -11,3 +11,18 @@ universe (JointModelRX)
         └─ upper_link_L_joint (JointModelRUBY)
             └─ lower_link_L_joint (JointModelRUBY)
                 └─ wheel_L_joint (JointModelRUBY)
+                
+
+  base_link (胴体) ← フローティングベース
+      |
+      | 股関節 (Y軸周り回転)
+      |
+  upper_link_R (太もも)
+      |
+      | 膝関節 (Y軸周り回転)
+      |
+  lower_link_R (すね)
+      |
+      | ホイール関節 (Y軸周り回転)
+      |
+  wheel_R (ホイール)
